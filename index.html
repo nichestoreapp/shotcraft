@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shotcraft — App Store &amp; Play Store Screenshot Studio</title>
+<meta name="description" content="Design App Store and Google Play screenshots and export every required size in one click." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%237c5cff'/><rect x='30' y='18' width='40' height='64' rx='8' fill='white'/></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&family=Playfair+Display:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark"></span>
+    <span class="brand-name">Shotcraft</span>
+  </div>
+
+  <div class="project-bar">
+    <span class="lbl">Project</span>
+    <select id="projectSelect" title="Switch project"></select>
+    <button id="btnProjectNew" class="mini">New</button>
+    <button id="btnProjectDup" class="mini">Duplicate</button>
+    <button id="btnProjectRename" class="mini">Rename</button>
+    <button id="btnProjectDel" class="mini">Delete</button>
+  </div>
+
+  <div class="top-actions">
+    <button id="btnReset" class="ghost">Reset design</button>
+    <button id="btnExportQuick" class="primary">Export all sizes</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ------------------------------------------------ panels -->
+  <aside class="rail rail-left">
+    <div class="rail-head">
+      <h2>Screens</h2>
+      <div class="row" style="margin:0;gap:5px">
+        <button id="btnBulkText" class="mini">Write all</button>
+        <button id="btnAddPanel" class="mini">+ Add</button>
+      </div>
+    </div>
+    <div id="panelList" class="panel-list"></div>
+    <div class="rail-foot">
+      <button id="btnBulkImages" class="wide ghost">Import screenshots…</button>
+      <input id="bulkFiles" type="file" accept="image/*" multiple hidden />
+      <p class="hint">One image per screen, in order. Extra images create new screens.</p>
+    </div>
+  </aside>
+
+  <!-- ------------------------------------------------ stage -->
+  <section class="stage">
+    <div class="stage-bar">
+      <label class="field inline">
+        <span>Preview size</span>
+        <select id="previewPreset"></select>
+      </label>
+      <span id="previewDims" class="dims"></span>
+      <span id="previewClass" class="pill"></span>
+      <div class="spacer"></div>
+      <button id="btnStrip" class="mini on">Store preview</button>
+      <label class="field inline">
+        <span>Zoom</span>
+        <input id="zoom" type="range" min="30" max="130" value="100" />
+      </label>
+    </div>
+
+    <div id="stageArea" class="stage-area">
+      <div id="dropZone" class="drop-zone">
+        <canvas id="preview"></canvas>
+        <div id="deviceHandle" class="device-handle" title="Drag to resize the device"></div>
+      </div>
+    </div>
+
+    <div id="storeStrip" class="store-strip">
+      <div class="strip-head">
+        <span class="strip-title">Search results — actual size</span>
+        <div id="legibility" class="legibility"></div>
+      </div>
+      <div id="stripRow" class="strip-row"></div>
+    </div>
+
+    <div class="stage-foot">
+      <button id="btnPrev" class="mini">‹ Prev</button>
+      <span id="panelCounter" class="counter">1 / 3</span>
+      <button id="btnNext" class="mini">Next ›</button>
+      <div class="spacer"></div>
+      <button id="btnDownloadOne" class="ghost">Download this screen</button>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ inspector -->
+  <aside class="rail rail-right">
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="content">Content</button>
+      <button class="tab" data-tab="style">Style</button>
+      <button class="tab" data-tab="device">Device</button>
+      <button class="tab" data-tab="export">Export</button>
+      <button class="tab" data-tab="ai">AI</button>
+    </nav>
+
+    <div class="tab-body">
+
+      <!-- Content -->
+      <section class="pane active" data-pane="content">
+        <div class="group">
+          <h3>Headline</h3>
+          <textarea id="caption" rows="3" placeholder="Your headline goes here"></textarea>
+          <p class="hint" id="captionMeter"></p>
+        </div>
+        <div class="group">
+          <h3>Subtitle</h3>
+          <textarea id="subtitle" rows="2" placeholder="Optional supporting line"></textarea>
+        </div>
+
+        <div class="group">
+          <h3>Screenshots</h3>
+          <div id="imageSlots" class="slots"></div>
+          <input id="fileImage" type="file" accept="image/*" hidden />
+          <p class="hint">Drag an image onto the canvas or press Ctrl+V to fill the slot for the size you are previewing.</p>
+        </div>
+
+        <div class="group">
+          <h3>Badge</h3>
+          <label class="check"><input id="badgeOn" type="checkbox" /><span>Show a badge on this screen</span></label>
+          <div id="badgeFields" class="stack">
+            <div class="seg" id="badgeTypeSeg">
+              <button data-v="rating">Rating</button>
+              <button data-v="pill">Text only</button>
+            </div>
+            <label class="field" id="badgeRatingWrap"><span>Rating</span>
+              <input id="badgeRating" type="number" min="0" max="5" step="0.1" /></label>
+            <label class="field"><span>Label</span>
+              <input id="badgeText" type="text" placeholder="12,000 parents" /></label>
+            <div class="seg" id="badgePosSeg">
+              <button data-v="above">Above headline</button>
+              <button data-v="below">Below</button>
+            </div>
+            <div class="row colors">
+              <label class="swatch"><input id="badgeFg" type="color" /><span>Text</span></label>
+              <label class="swatch"><input id="badgeBg" type="color" /><span>Fill</span></label>
+            </div>
+            <label class="field"><span>Fill opacity <b id="badgeOpacityVal">18</b></span>
+              <input id="badgeOpacity" type="range" min="0" max="100" value="18" /></label>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Layout</h3>
+          <div class="seg" id="layoutSeg">
+            <button data-v="above">Text top</button>
+            <button data-v="below">Text bottom</button>
+            <button data-v="overlay">Overlay</button>
+            <button data-v="none">Device only</button>
+          </div>
+          <p class="hint">Landscape sizes switch to a side-by-side layout automatically.</p>
+        </div>
+      </section>
+
+      <!-- Style -->
+      <section class="pane" data-pane="style">
+        <div class="group">
+          <h3>Starter sets</h3>
+          <p class="hint" style="margin-top:0">A whole five-screen set: layout rhythm, colours and a headline skeleton telling you what belongs on each screen. Your screenshots stay in place.</p>
+          <div id="starterList" class="starter-list"></div>
+        </div>
+
+        <div class="group">
+          <h3>Colour theme</h3>
+          <div id="templateGrid" class="template-grid"></div>
+        </div>
+
+        <div class="group">
+          <h3>Background</h3>
+          <label class="field"><span>Type</span>
+            <select id="bgType">
+              <option value="mesh">Mesh blobs</option>
+              <option value="linear">Linear gradient</option>
+              <option value="radial">Radial gradient</option>
+              <option value="solid">Solid</option>
+              <option value="image">Image</option>
+            </select>
+          </label>
+          <div class="row colors">
+            <label class="swatch"><input id="bgC1" type="color" /><span>Color 1</span></label>
+            <label class="swatch"><input id="bgC2" type="color" /><span>Color 2</span></label>
+            <label class="swatch" id="bgC3Wrap"><input id="bgC3" type="color" /><span>Color 3</span></label>
+          </div>
+          <label class="field" id="bgAngleWrap"><span>Angle <b id="bgAngleVal">135°</b></span>
+            <input id="bgAngle" type="range" min="0" max="360" value="135" />
+          </label>
+          <div id="bgImageWrap" class="stack">
+            <button id="btnBgImage" class="wide">Choose background image…</button>
+            <input id="fileBgImage" type="file" accept="image/*" hidden />
+            <label class="field"><span>Blur <b id="bgBlurVal">0</b></span><input id="bgBlur" type="range" min="0" max="100" value="0" /></label>
+            <label class="field"><span>Dim <b id="bgDimVal">30</b></span><input id="bgDim" type="range" min="0" max="90" value="30" /></label>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Type</h3>
+          <label class="field"><span>Font</span><select id="fontFamily"></select></label>
+          <div class="seg" id="alignSeg">
+            <button data-v="left">Left</button>
+            <button data-v="center">Center</button>
+            <button data-v="right">Right</button>
+          </div>
+          <label class="field"><span>Headline size <b id="capSizeVal"></b></span>
+            <input id="capSize" type="range" min="30" max="110" value="58" /></label>
+          <label class="field"><span>Headline weight <b id="capWeightVal">800</b></span>
+            <input id="capWeight" type="range" min="400" max="900" step="100" value="800" /></label>
+          <label class="field"><span>Subtitle size <b id="subSizeVal"></b></span>
+            <input id="subSize" type="range" min="16" max="70" value="32" /></label>
+          <div class="row colors">
+            <label class="swatch"><input id="capColor" type="color" /><span>Headline</span></label>
+            <label class="swatch"><input id="subColor" type="color" /><span>Subtitle</span></label>
+          </div>
+          <label class="field"><span>Line height <b id="lineHeightVal">1.18</b></span>
+            <input id="lineHeight" type="range" min="90" max="180" value="118" /></label>
+          <label class="field"><span>Letter spacing <b id="trackingVal">-0.02</b></span>
+            <input id="tracking" type="range" min="-8" max="16" value="-2" /></label>
+          <label class="check"><input id="textShadow" type="checkbox" /><span>Text shadow</span></label>
+        </div>
+
+        <div class="group">
+          <h3>Spacing</h3>
+          <label class="field"><span>Outer padding <b id="paddingVal">7.5%</b></span>
+            <input id="padding" type="range" min="20" max="160" value="75" /></label>
+        </div>
+      </section>
+
+      <!-- Device -->
+      <section class="pane" data-pane="device">
+        <div class="group">
+          <h3>Frames</h3>
+          <label class="field"><span>Phone sizes</span><select id="framePhone"></select></label>
+          <label class="field"><span>Tablet sizes</span><select id="frameTablet"></select></label>
+          <label class="field"><span>Desktop sizes</span><select id="frameDesktop"></select></label>
+          <label class="swatch wide-swatch"><input id="frameColor" type="color" /><span>Frame color</span></label>
+        </div>
+
+        <div class="group">
+          <h3>Status bar</h3>
+          <label class="field"><span>Show a clean status bar</span>
+            <select id="sbMode">
+              <option value="off">Off — keep the original</option>
+              <option value="auto">On — match the screenshot</option>
+              <option value="light">On — white icons</option>
+              <option value="dark">On — dark icons</option>
+            </select>
+          </label>
+          <label class="field"><span>Time</span><input id="sbTime" type="text" value="9:41" /></label>
+          <label class="field"><span>Cover the original with</span>
+            <select id="sbCoverMode">
+              <option value="auto">Colour sampled from the screenshot</option>
+              <option value="custom">A colour I pick</option>
+              <option value="none">Nothing — draw on top</option>
+            </select>
+          </label>
+          <label class="swatch wide-swatch" id="sbCoverWrap"><input id="sbCover" type="color" /><span>Cover colour</span></label>
+          <p class="hint">Phone frames only. Replaces the 47%-battery look with a clean 9:41 bar.</p>
+        </div>
+
+        <div class="group">
+          <h3>Position</h3>
+          <label class="field"><span>Scale <b id="devScaleVal">100%</b></span>
+            <input id="devScale" type="range" min="40" max="180" value="100" /></label>
+          <label class="field"><span>Horizontal <b id="devXVal">0</b></span>
+            <input id="devX" type="range" min="-50" max="50" value="0" /></label>
+          <label class="field"><span>Vertical <b id="devYVal">0</b></span>
+            <input id="devY" type="range" min="-50" max="50" value="0" /></label>
+          <label class="field"><span>Rotation <b id="devRotVal">0°</b></span>
+            <input id="devRot" type="range" min="-25" max="25" value="0" /></label>
+          <p class="hint">You can also drag the device straight on the canvas, pull the blue dot to resize it, and double-click to reset.</p>
+        </div>
+        <div class="group">
+          <h3>Finish</h3>
+          <label class="field"><span>Shadow <b id="devShadowVal">80%</b></span>
+            <input id="devShadow" type="range" min="0" max="150" value="80" /></label>
+          <label class="check"><input id="devGloss" type="checkbox" checked /><span>Screen gloss</span></label>
+        </div>
+      </section>
+
+      <!-- Export -->
+      <section class="pane" data-pane="export">
+        <div class="group">
+          <h3>Sizes</h3>
+          <div class="row">
+            <button id="btnRequiredOnly" class="mini">Required only</button>
+            <button id="btnSelectNone" class="mini">Clear</button>
+          </div>
+          <div id="targetList" class="target-list"></div>
+        </div>
+        <div class="group">
+          <h3>Output</h3>
+          <label class="field"><span>Format</span>
+            <select id="format">
+              <option value="png">PNG (recommended)</option>
+              <option value="jpeg">JPEG (smaller)</option>
+            </select>
+          </label>
+          <label class="field" id="qualityWrap" hidden><span>Quality <b id="qualityVal">92</b></span>
+            <input id="quality" type="range" min="60" max="100" value="92" /></label>
+        </div>
+        <div class="group">
+          <button id="btnExport" class="primary wide">Download ZIP</button>
+          <div id="progressWrap" class="progress" hidden><div id="progressBar"></div></div>
+          <p id="exportStatus" class="hint"></p>
+          <p id="exportWarn" class="hint warn" hidden></p>
+          <p class="hint">Files are named <code>01.png</code>, <code>02.png</code>… inside a folder per size, matching the upload order in App Store Connect and Play Console.</p>
+        </div>
+      </section>
+
+      <!-- AI -->
+      <section class="pane" data-pane="ai">
+        <div class="group">
+          <h3>AI assist</h3>
+          <p class="hint">Not connected yet. This panel is the hook-up point for the next step.</p>
+          <label class="field"><span>App description</span>
+            <textarea id="aiDescription" rows="4" placeholder="A white-noise app that helps babies fall asleep…"></textarea>
+          </label>
+          <button class="wide" id="btnAiGenerate" disabled>Generate headlines</button>
+          <ul class="roadmap">
+            <li>Write headline + subtitle sets from your app description</li>
+            <li>Pick a palette from your app icon</li>
+            <li>Translate a finished set into every store locale</li>
+            <li>Suggest which screen order converts best</li>
+          </ul>
+        </div>
+      </section>
+
+    </div>
+  </aside>
+</main>
+
+<div id="bulkModal" class="modal" hidden>
+  <div class="modal-card">
+    <header class="modal-head">
+      <h2>Write every screen</h2>
+      <span class="modal-sub">Headlines sell in the first two screens. Keep each one to five words or fewer.</span>
+      <button id="bulkClose" class="mini">Done</button>
+    </header>
+    <div id="bulkRows" class="bulk-rows"></div>
+    <footer class="modal-foot">
+      <button id="bulkAdd" class="mini">+ Add screen</button>
+      <span class="spacer"></span>
+      <span class="hint">Changes apply as you type. Esc closes.</span>
+    </footer>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

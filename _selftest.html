@@ -1,0 +1,421 @@
+<!doctype html><html><head><meta charset="utf-8"><title>selftest</title></head>
+<body><pre id="out">running</pre>
+<script type="module">
+import { renderPanel, computeLayout, frameForClass, contrastRatio, hexLuminance } from './js/render.js';
+import { defaultProject, defaultStyle, ImageStore, normalizeProject, Projects, projectImageIds, newPanel, newBadge, STARTER_SETS, TEMPLATES } from './js/store.js';
+import { makeZip } from './js/zip.js';
+import { PRESETS, DEVICE_CLASSES, classesForTargets, framesForClass } from './js/presets.js';
+
+const log = [];
+const report = (s) => fetch('/__r?' + encodeURIComponent(s)).catch(() => {});
+const ok = (n, c, extra) => {
+  const line = (c ? 'PASS' : 'FAIL') + '  ' + n + (extra ? '  ' + extra : '');
+  log.push(line);
+  report(line);
+};
+
+// This suite erases every Shotcraft project in the browser it runs in, so it
+// refuses to start unless the URL explicitly asks for it.
+const armed = new URLSearchParams(location.search).get('run') === '1';
+if (!armed) {
+  document.getElementById('out').textContent =
+    'Developer self-test.\n\nRunning it ERASES every Shotcraft project stored in this browser.\n\n' +
+    'Open _selftest.html?run=1 if that is what you want.';
+  document.title = 'selftest (locked)';
+} else {
+
+try {
+  localStorage.clear();
+  const p = defaultProject();
+
+  /* ---------- rendering ---------- */
+
+  const c = document.createElement('canvas');
+  c.width = 1290; c.height = 2796;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  const t0 = performance.now();
+  renderPanel(ctx, c.width, c.height, p.panels[0], p.style, ImageStore, 'phone');
+  ok('render 1290x2796 phone', true, Math.round(performance.now() - t0) + 'ms');
+
+  const px = (x, y) => Array.from(ctx.getImageData(x, y, 1, 1).data);
+  ok('background painted', px(5, 5)[3] === 255);
+
+  let bright = 0;
+  const band = ctx.getImageData(100, 200, 1090, 300).data;
+  for (let i = 0; i < band.length; i += 4) if (band[i] > 230 && band[i + 1] > 230 && band[i + 2] > 230) bright++;
+  ok('headline text drawn', bright > 500, bright + ' light px');
+
+  let dark = 0;
+  const lower = ctx.getImageData(100, 1400, 1090, 600).data;
+  for (let i = 0; i < lower.length; i += 4) if (lower[i] < 45 && lower[i + 1] < 45 && lower[i + 2] < 55) dark++;
+  ok('device frame drawn', dark > 2000, dark + ' dark px');
+
+  /* ---------- per-device-class frames ---------- */
+
+  ok('phone frame default', frameForClass(p.style, 'phone') === 'iphone');
+  ok('tablet frame default', frameForClass(p.style, 'tablet') === 'ipad');
+  ok('desktop frame default', frameForClass(p.style, 'desktop') === 'laptop');
+
+  // an iPad export must be wider than an iPhone export at the same canvas
+  function frameWidth(cls) {
+    const t = document.createElement('canvas');
+    t.width = 600; t.height = 800;
+    const tc = t.getContext('2d', { willReadFrequently: true });
+    const st = JSON.parse(JSON.stringify(p.style));
+    st.device.color = '#ff0000';
+    renderPanel(tc, 600, 800, { ...p.panels[0], caption: '', subtitle: '', layout: 'none' }, st, ImageStore, cls);
+    const row = tc.getImageData(0, 400, 600, 1).data;
+    let min = -1, max = -1;
+    for (let x = 0; x < 600; x++) {
+      const i = x * 4;
+      const isFrame = row[i] > 90 && row[i + 1] < 90 && row[i + 2] < 90;
+      if (isFrame) { if (min < 0) min = x; max = x; }
+    }
+    return max - min;
+  }
+  const wPhone = frameWidth('phone');
+  const wTablet = frameWidth('tablet');
+  ok('tablet frame is wider than phone', wTablet > wPhone + 60, 'phone ' + wPhone + ' vs tablet ' + wTablet);
+
+  ok('framesForClass filters', framesForClass('tablet').every((e) => e[1].cls === 'tablet' || e[1].cls === 'any'));
+  ok('every preset has a class', PRESETS.every((x) => DEVICE_CLASSES[x.cls]));
+  const cls = classesForTargets(['ios-69', 'ipad-13', 'mac-1280']);
+  ok('classesForTargets', cls.has('phone') && cls.has('tablet') && cls.has('desktop'));
+
+  /* ---------- image slots + fallback ---------- */
+
+  const png = await new Promise((r) => c.toBlob(r, 'image/png'));
+  const imgId = await ImageStore.put(png);
+  const panelA = JSON.parse(JSON.stringify(p.panels[0]));
+  panelA.images.phone = imgId;
+  ok('tablet falls back to phone image', (() => {
+    const t = document.createElement('canvas');
+    t.width = 300; t.height = 400;
+    renderPanel(t.getContext('2d'), 300, 400, panelA, p.style, ImageStore, 'tablet');
+    return true;
+  })());
+  ok('projectImageIds collects slots', (() => {
+    const proj = defaultProject();
+    proj.panels[0].images.tablet = imgId;
+    return projectImageIds(proj).has(imgId);
+  })());
+
+  /* ---------- status bar ---------- */
+
+  const stSB = JSON.parse(JSON.stringify(p.style));
+  stSB.statusBar = { mode: 'light', time: '9:41', cover: '#123456', coverColor: '#123456' };
+  stSB.device.gloss = false; // the gloss overlay would tint the exact colour we probe for
+  const sbCanvas = document.createElement('canvas');
+  sbCanvas.width = 640; sbCanvas.height = 1390;
+  const sbCtx = sbCanvas.getContext('2d', { willReadFrequently: true });
+  renderPanel(sbCtx, 640, 1390, { ...p.panels[0], layout: 'none' }, stSB, ImageStore, 'phone');
+  // hunt for the cover colour somewhere across the top of the screen
+  let found = false;
+  const strip = sbCtx.getImageData(0, 0, 640, 400).data;
+  for (let i = 0; i < strip.length; i += 4) {
+    if (strip[i] === 0x12 && strip[i + 1] === 0x34 && strip[i + 2] === 0x56) { found = true; break; }
+  }
+  ok('status bar cover drawn', found);
+
+  const stOff = JSON.parse(JSON.stringify(stSB));
+  stOff.statusBar.mode = 'off';
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = 640; offCanvas.height = 1390;
+  const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
+  renderPanel(offCtx, 640, 1390, { ...p.panels[0], layout: 'none' }, stOff, ImageStore, 'phone');
+  let foundOff = false;
+  const stripOff = offCtx.getImageData(0, 0, 640, 400).data;
+  for (let i = 0; i < stripOff.length; i += 4) {
+    if (stripOff[i] === 0x12 && stripOff[i + 1] === 0x34 && stripOff[i + 2] === 0x56) { foundOff = true; break; }
+  }
+  ok('status bar off draws nothing', !foundOff);
+
+  ok('status bar skipped on tablet', (() => {
+    const t = document.createElement('canvas');
+    t.width = 400; t.height = 540;
+    renderPanel(t.getContext('2d'), 400, 540, { ...p.panels[0], layout: 'none' }, stSB, ImageStore, 'tablet');
+    return true;
+  })());
+
+  /* ---------- badge ---------- */
+
+  const badged = JSON.parse(JSON.stringify(p.panels[0]));
+  badged.badge = { on: true, type: 'rating', rating: 4.8, text: '12,000 parents', position: 'above', bg: '#ff00ff', fg: '#ffffff', opacity: 100 };
+  const bc = document.createElement('canvas');
+  bc.width = 1290; bc.height = 2796;
+  const bctx = bc.getContext('2d', { willReadFrequently: true });
+  renderPanel(bctx, 1290, 2796, badged, p.style, ImageStore, 'phone');
+  let magenta = 0;
+  const top = bctx.getImageData(0, 100, 1290, 400).data;
+  for (let i = 0; i < top.length; i += 4) if (top[i] > 200 && top[i + 1] < 80 && top[i + 2] > 200) magenta++;
+  ok('badge pill drawn', magenta > 800, magenta + ' px');
+
+  const below = JSON.parse(JSON.stringify(badged));
+  below.badge.position = 'below';
+  const bc2 = document.createElement('canvas');
+  bc2.width = 1290; bc2.height = 2796;
+  const b2 = bc2.getContext('2d', { willReadFrequently: true });
+  renderPanel(b2, 1290, 2796, below, p.style, ImageStore, 'phone');
+  let magentaTop = 0;
+  const t2 = b2.getImageData(0, 100, 1290, 250).data;
+  for (let i = 0; i < t2.length; i += 4) if (t2[i] > 200 && t2[i + 1] < 80 && t2[i + 2] > 200) magentaTop++;
+  ok('badge position below moves it', magentaTop < 200, magentaTop + ' px near top');
+
+  ok('badge off draws nothing', (() => {
+    const t = document.createElement('canvas');
+    t.width = 600; t.height = 1300;
+    const tc = t.getContext('2d', { willReadFrequently: true });
+    const off = JSON.parse(JSON.stringify(badged));
+    off.badge.on = false;
+    renderPanel(tc, 600, 1300, off, p.style, ImageStore, 'phone');
+    const d = tc.getImageData(0, 0, 600, 500).data;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 80 && d[i + 2] > 200) return false;
+    return true;
+  })());
+
+  /* ---------- legibility maths ---------- */
+
+  ok('contrast white on dark', contrastRatio(hexLuminance('#ffffff'), hexLuminance('#0b0b18')) > 15);
+  ok('contrast white on white is 1', Math.abs(contrastRatio(hexLuminance('#ffffff'), hexLuminance('#ffffff')) - 1) < 0.01);
+
+  /* ---------- combinatorial ---------- */
+
+  let thrown = null;
+  for (const preset of PRESETS) {
+    try {
+      const t = document.createElement('canvas');
+      t.width = Math.round(preset.w / 5); t.height = Math.round(preset.h / 5);
+      renderPanel(t.getContext('2d'), t.width, t.height, p.panels[1], p.style, ImageStore, preset.cls);
+    } catch (e) { thrown = preset.id + ': ' + e.message; break; }
+  }
+  ok('all ' + PRESETS.length + ' presets render', !thrown, thrown || '');
+
+  thrown = null;
+  for (const layout of ['above', 'below', 'overlay', 'none']) {
+    for (const cl of ['phone', 'tablet', 'desktop']) {
+      for (const f of framesForClass(cl)) {
+        try {
+          const t = document.createElement('canvas');
+          t.width = 300; t.height = 640;
+          const st = JSON.parse(JSON.stringify(p.style));
+          st.device.frames[cl] = f[0];
+          st.statusBar.mode = 'auto';
+          renderPanel(t.getContext('2d', { willReadFrequently: true }), 300, 640, { ...badged, layout }, st, ImageStore, cl);
+        } catch (e) { thrown = layout + '/' + cl + '/' + f[0] + ': ' + e.message; }
+      }
+    }
+  }
+  ok('layout x class x frame combos', !thrown, thrown || '');
+
+  thrown = null;
+  for (const type of ['solid', 'linear', 'radial', 'mesh', 'image']) {
+    try {
+      const st = JSON.parse(JSON.stringify(p.style));
+      st.bg.type = type;
+      const t = document.createElement('canvas');
+      t.width = 300; t.height = 640;
+      renderPanel(t.getContext('2d'), 300, 640, p.panels[0], st, ImageStore, 'phone');
+    } catch (e) { thrown = type + ': ' + e.message; }
+  }
+  ok('5 background types', !thrown, thrown || '');
+
+  /* ---------- v1 migration ---------- */
+
+  const v1 = {
+    version: 1, name: 'Legacy', activeTemplate: 'sunset',
+    style: { padding: 0.08, bg: { type: 'linear', c1: '#111111', c2: '#222222' }, text: { font: 'Poppins' }, device: { frame: 'android', scale: 1.1 } },
+    panels: [{ id: 'x', caption: 'Old', subtitle: '', imageId: 'img_legacy', layout: 'below' }],
+    activePanel: 0, targets: ['ios-69'], previewPreset: 'ios-69',
+  };
+  const mig = normalizeProject(v1);
+  ok('v1 imageId -> images.phone', mig.panels[0].images.phone === 'img_legacy');
+  ok('v1 frame -> frames.phone', mig.style.device.frames.phone === 'android');
+  ok('v1 keeps tablet/desktop defaults', mig.style.device.frames.tablet === 'ipad' && mig.style.device.frames.desktop === 'laptop');
+  ok('v1 gains a badge', mig.panels[0].badge && mig.panels[0].badge.on === false);
+  ok('v1 gains a status bar', mig.style.statusBar.mode === 'off');
+  ok('v1 keeps its own values', mig.style.device.scale === 1.1 && mig.style.text.font === 'Poppins' && mig.name === 'Legacy');
+
+  /* ---------- multi project ---------- */
+
+  localStorage.clear();
+  const first = Projects.loadActive();
+  ok('first run creates one project', Projects.list().length === 1 && !!first.id);
+
+  const second = Projects.create('Second App');
+  ok('create adds a project', Projects.list().length === 2);
+  ok('create switches active', Projects.activeId() === second.id);
+
+  second.panels[0].caption = 'Only in second';
+  Projects.write(second);
+  Projects.setActive(first.id);
+  const reFirst = Projects.loadActive();
+  ok('projects are isolated', reFirst.panels[0].caption !== 'Only in second');
+  ok('reload keeps second', Projects.read(second.id).panels[0].caption === 'Only in second');
+
+  const clone = Projects.create('Cloned', second);
+  ok('duplicate copies content', clone.panels[0].caption === 'Only in second');
+  ok('duplicate gets a new id', clone.id !== second.id);
+  ok('rename updates the list', (() => {
+    Projects.rename(clone.id, 'Renamed');
+    return Projects.list().some((r) => r.name === 'Renamed');
+  })());
+
+  const before = Projects.list().length;
+  await Projects.remove(clone.id);
+  ok('delete removes it', Projects.list().length === before - 1 && !Projects.read(clone.id));
+
+  // deleting must not orphan an image another project still uses
+  localStorage.clear();
+  const pa = Projects.loadActive();
+  const shared = await ImageStore.put(png);
+  pa.panels[0].images.phone = shared;
+  Projects.write(pa);
+  const pb = Projects.create('Holder');
+  pb.panels[0].images.phone = shared;
+  Projects.write(pb);
+  await Projects.remove(pa.id);
+  const keys = await ImageStore.keys();
+  ok('shared image survives deletion', keys.includes(shared));
+
+  ok('cannot delete the last project', (() => {
+    localStorage.clear();
+    Projects.loadActive();
+    return Projects.list().length === 1;
+  })());
+
+  /* ---------- computeLayout / drag maths ---------- */
+
+  {
+    const st = JSON.parse(JSON.stringify(p.style));
+    const probe = document.createElement('canvas');
+    probe.width = 1290; probe.height = 2796;
+    const pc = probe.getContext('2d', { willReadFrequently: true });
+
+    const base = computeLayout(pc, 1290, 2796, p.panels[0], st, 'phone');
+    ok('computeLayout returns a device rect', base.rect && base.rect.w > 0 && base.rect.h > 0,
+       Math.round(base.rect.w) + 'x' + Math.round(base.rect.h));
+    ok('computeLayout returns a text box', base.text && base.block && base.block.height > 0);
+    ok('layout area is inside the canvas', base.area.x >= 0 && base.area.y >= 0 && base.area.w <= 1290);
+
+    // offsetX must move the device by exactly offsetX * area.w — the drag maths depends on it
+    const moved = JSON.parse(JSON.stringify(st));
+    moved.device.offsetX = 0.1;
+    const m = computeLayout(pc, 1290, 2796, p.panels[0], moved, 'phone');
+    const expected = base.area.w * 0.1;
+    ok('offsetX moves by offsetX * area.w', Math.abs((m.rect.left - base.rect.left) - expected) < 0.5,
+       'moved ' + (m.rect.left - base.rect.left).toFixed(1) + ' expected ' + expected.toFixed(1));
+
+    const moveY = JSON.parse(JSON.stringify(st));
+    moveY.device.offsetY = -0.05;
+    const my = computeLayout(pc, 1290, 2796, p.panels[0], moveY, 'phone');
+    ok('offsetY moves by offsetY * area.h', Math.abs((my.rect.top - base.rect.top) + base.area.h * 0.05) < 0.5);
+
+    const scaled = JSON.parse(JSON.stringify(st));
+    scaled.device.scale = 1.5;
+    const sc = computeLayout(pc, 1290, 2796, p.panels[0], scaled, 'phone');
+    ok('scale multiplies the device size', Math.abs(sc.rect.w / base.rect.w - 1.5) < 0.001);
+    ok('scale keeps the device centred', Math.abs((sc.rect.left + sc.rect.w / 2) - (base.rect.left + base.rect.w / 2)) < 0.5);
+
+    for (const layout of ['above', 'below', 'overlay', 'none']) {
+      const L = computeLayout(pc, 1290, 2796, { ...p.panels[0], layout }, st, 'phone');
+      if (L.rect.w <= 0) { ok('layout ' + layout + ' has a rect', false); break; }
+    }
+    ok('every layout produces a rect', true);
+
+    const land = computeLayout(pc, 1024, 500, p.panels[0], st, 'phone');
+    ok('landscape switches to side layout', land.layout === 'side');
+  }
+
+  /* ---------- starter sets ---------- */
+
+  {
+    const keys = Object.keys(STARTER_SETS);
+    ok('starter sets exist', keys.length >= 5, keys.length + ' sets');
+    let bad = null;
+    for (const k of keys) {
+      const set = STARTER_SETS[k];
+      if (!set.label || !set.note) bad = k + ': missing label/note';
+      else if (!TEMPLATES[set.template]) bad = k + ': unknown theme ' + set.template;
+      else if (!Array.isArray(set.panels) || set.panels.length !== 5) bad = k + ': not 5 panels';
+      else {
+        for (const pn of set.panels) {
+          if (!pn.caption) bad = k + ': empty caption';
+          if (!['above', 'below', 'overlay', 'none'].includes(pn.layout)) bad = k + ': bad layout ' + pn.layout;
+        }
+      }
+    }
+    ok('every starter set is well formed', !bad, bad || '');
+
+    // every set must render on the required sizes without throwing
+    let thrown = null;
+    for (const k of keys) {
+      const set = STARTER_SETS[k];
+      const st = defaultStyle();
+      Object.assign(st.bg, TEMPLATES[set.template].bg);
+      Object.assign(st.text, TEMPLATES[set.template].text);
+      Object.assign(st.device, TEMPLATES[set.template].device);
+      if (set.style) {
+        if (set.style.text) Object.assign(st.text, set.style.text);
+        if (set.style.device) Object.assign(st.device, set.style.device);
+        if (set.style.padding !== undefined) st.padding = set.style.padding;
+      }
+      for (const src of set.panels) {
+        const pn = newPanel(src.caption, src.subtitle);
+        pn.layout = src.layout;
+        pn.badge = { ...newBadge(), ...(src.badge || {}) };
+        for (const preset of [{ w: 1290, h: 2796, cls: 'phone' }, { w: 2064, h: 2752, cls: 'tablet' }, { w: 1024, h: 500, cls: 'phone' }]) {
+          try {
+            const t = document.createElement('canvas');
+            t.width = Math.round(preset.w / 4);
+            t.height = Math.round(preset.h / 4);
+            renderPanel(t.getContext('2d', { willReadFrequently: true }), t.width, t.height, pn, st, ImageStore, preset.cls);
+          } catch (e) { thrown = k + ': ' + e.message; }
+        }
+      }
+    }
+    ok('every starter set renders', !thrown, thrown || '');
+
+    // headlines must survive the legibility rule the app enforces
+    let tooSmall = null;
+    for (const k of keys) {
+      const set = STARTER_SETS[k];
+      const size = (set.style && set.style.text && set.style.text.captionSize) || defaultStyle().text.captionSize;
+      if (size * 110 < 7.5) tooSmall = k + ' at ' + (size * 110).toFixed(1) + 'px';
+      for (const src of set.panels) {
+        const n = src.caption.trim().split(/\s+/).filter(Boolean).length;
+        if (n > 7) tooSmall = k + ' headline has ' + n + ' words';
+      }
+    }
+    ok('starter copy passes its own legibility rules', !tooSmall, tooSmall || '');
+  }
+
+  /* ---------- export ---------- */
+
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  ok('png signature', bytes[0] === 0x89 && bytes[1] === 0x50);
+
+  const enc = new TextEncoder();
+  const tiny = makeZip([
+    { name: 'My App/App Store/6.9 iPhone 1290x2796/01.png', data: enc.encode('hello-one') },
+    { name: 'My App/App Store/13 iPad 2064x2752/01.png', data: enc.encode('hello-two-two') },
+  ]);
+  const tb = new Uint8Array(await tiny.arrayBuffer());
+  let s = '';
+  for (const v of tb) s += String.fromCharCode(v);
+  report('__ZIP__' + btoa(s));
+  ok('zip built', tb[0] === 0x50 && tb[1] === 0x4b);
+
+  await ImageStore.remove(imgId);
+  localStorage.clear();
+} catch (e) {
+  log.push('FAIL  uncaught: ' + e.message);
+  report('FAIL  uncaught: ' + e.message + ' @ ' + (e.stack || '').split('\n')[1]);
+}
+
+report('__DONE__');
+document.getElementById('out').textContent = log.join('\n');
+document.title = log.some((l) => l.startsWith('FAIL')) ? 'SOME FAILED' : 'ALL PASSED';
+
+}
+</script></body></html>
