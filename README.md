@@ -2,7 +2,11 @@
 
 Mağaza ekran görüntülerini tasarlayıp App Store ve Google Play'in istediği **tüm ölçülerde** tek tıkla ZIP olarak indiren web uygulaması.
 
+**Canlı:** https://nichestoreapp.github.io/shotcraft/
+
 Kurulum yok, derleme yok, internet bağımlılığı yok (yazı tipleri hariç). Sadece HTML + CSS + JavaScript.
+
+> Şu an masaüstü ve tablet için tasarlandı; telefonda düzen henüz sığmıyor.
 
 ---
 
@@ -125,7 +129,7 @@ Tüm işlem kullanıcının tarayıcısında olur; sunucu maliyeti yok, görsell
 | `js/store.js` | Proje durumu, çoklu proje deposu, şablonlar, görsel deposu (IndexedDB) |
 | `js/zip.js` | ZIP oluşturucu |
 | `js/app.js` | Arayüz bağlantıları, dışa aktarım akışı |
-| `_selftest.html` | Geliştirici testi — `http://localhost:8123/_selftest.html` |
+| `_selftest.html` | Geliştirici testi — `http://localhost:8123/_selftest.html?run=1` (**dikkat: tarayıcıdaki tüm projeleri siler**, bu yüzden `?run=1` olmadan çalışmaz ve GitHub Pages alt çizgiyle başlayan dosyaları yayınlamaz) |
 
 Çizim motoru **çözünürlükten bağımsızdır**: her ölçü `min(genişlik, yükseklik)` oranına göre hesaplanır, bu yüzden 430px'lik önizleme ile 2796px'lik çıktı birebir aynı görünür.
 
